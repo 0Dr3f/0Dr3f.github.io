@@ -5,8 +5,8 @@
     <description>Vulnerability Research &amp; Exploitation</description>
     <link>/</link>
     <atom:link href="/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Fri, 14 Jul 2023 15:41:21 +0200</pubDate>
-    <lastBuildDate>Fri, 14 Jul 2023 15:41:21 +0200</lastBuildDate>
+    <pubDate>Fri, 14 Jul 2023 15:58:37 +0200</pubDate>
+    <lastBuildDate>Fri, 14 Jul 2023 15:58:37 +0200</lastBuildDate>
     <generator>Jekyll v4.3.2</generator>
     
       <item>
@@ -736,7 +736,7 @@ Evaluate expression: 12585568 = 00000000`00c00a60
 
 &lt;h2 id=&quot;profit&quot;&gt;Profit&lt;/h2&gt;
 &lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230714140739.png&quot; alt=&quot;&quot; /&gt;
-Full exploit code can be found here: xxx&lt;/p&gt;
+Full exploit code can be found here: &lt;a href=&quot;https://github.com/0Dr3f/Exploit-Development/tree/main/HEVD&quot;&gt;HEVD&lt;/a&gt;&lt;/p&gt;
 
 &lt;h2 id=&quot;wrapping-up&quot;&gt;Wrapping up&lt;/h2&gt;
 &lt;p&gt;This post has walked us through the process of exploiting the arbitrary overwrite vulnerability on Windows 10 22H2. The steps involved identifying that &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;nt!HaliQuerySystemInformation&lt;/span&gt; was a viable in-direct callable function to use, finding the right ROP gadget in order to gain control over the stack, disabling SMEP in order to execute shellcode, and preventing a BSOD to occur.I want to give special credits to &lt;a href=&quot;https://connormcgarr.github.io/&quot;&gt;Connor Mcgarr&lt;/a&gt; for sharing great knowledge and resources on kernel exploitation &amp;amp; mitigations.&lt;/p&gt;

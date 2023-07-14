@@ -999,7 +999,7 @@ Evaluate expression: 12585568 = 00000000`00c00a60
 
 <h2 id="profit">Profit</h2>
 <p><img src="/images/Pasted%20image%2020230714140739.png" alt="" />
-Full exploit code can be found here: xxx</p>
+Full exploit code can be found here: <a href="https://github.com/0Dr3f/Exploit-Development/tree/main/HEVD">HEVD</a></p>
 
 <h2 id="wrapping-up">Wrapping up</h2>
 <p>This post has walked us through the process of exploiting the arbitrary overwrite vulnerability on Windows 10 22H2. The steps involved identifying that <span style="color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px">nt!HaliQuerySystemInformation</span> was a viable in-direct callable function to use, finding the right ROP gadget in order to gain control over the stack, disabling SMEP in order to execute shellcode, and preventing a BSOD to occur.I want to give special credits to <a href="https://connormcgarr.github.io/">Connor Mcgarr</a> for sharing great knowledge and resources on kernel exploitation &amp; mitigations.</p>
