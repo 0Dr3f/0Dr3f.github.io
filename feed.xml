@@ -5,9 +5,25 @@
     <description>Vulnerability Research &amp; Exploitation</description>
     <link>/</link>
     <atom:link href="/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Fri, 14 Jul 2023 16:17:13 +0200</pubDate>
-    <lastBuildDate>Fri, 14 Jul 2023 16:17:13 +0200</lastBuildDate>
+    <pubDate>Sun, 13 Aug 2023 18:18:13 +0200</pubDate>
+    <lastBuildDate>Sun, 13 Aug 2023 18:18:13 +0200</lastBuildDate>
     <generator>Jekyll v4.3.2</generator>
+    
+      <item>
+        <title>CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER</title>
+        <description>&lt;p&gt;This is a placeholder for CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356. We are still trying to work with the vendor in order to mitigate these issues.&lt;/p&gt;
+
+</description>
+        <pubDate>Sun, 13 Aug 2023 16:01:35 +0200</pubDate>
+        <link>/2023/08/13/CVE-2023-38351,-CVE-2023-38352,-CVE-2023-38353,-CVE-2023-38354,-CVE-2023-38355,-CVE-2023-38356-PLACEHOLDER/</link>
+        <guid isPermaLink="true">/2023/08/13/CVE-2023-38351,-CVE-2023-38352,-CVE-2023-38353,-CVE-2023-38354,-CVE-2023-38355,-CVE-2023-38356-PLACEHOLDER/</guid>
+        
+        <category>CVE</category>
+        
+        <category>POC</category>
+        
+        
+      </item>
     
       <item>
         <title>HEVD on Win10 22H2 - Arbitrary Overwrite</title>
