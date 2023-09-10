@@ -5,8 +5,8 @@
     <description>Vulnerability Research &amp; Exploitation</description>
     <link>/</link>
     <atom:link href="/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Sun, 10 Sep 2023 20:27:10 +0200</pubDate>
-    <lastBuildDate>Sun, 10 Sep 2023 20:27:10 +0200</lastBuildDate>
+    <pubDate>Sun, 10 Sep 2023 21:13:15 +0200</pubDate>
+    <lastBuildDate>Sun, 10 Sep 2023 21:13:15 +0200</lastBuildDate>
     <generator>Jekyll v4.3.2</generator>
     
       <item>
@@ -163,8 +163,8 @@ php -S 0.0.0.0:80
 
 </description>
         <pubDate>Sun, 10 Sep 2023 00:00:00 +0200</pubDate>
-        <link>/2023/09/10/CVE/</link>
-        <guid isPermaLink="true">/2023/09/10/CVE/</guid>
+        <link>/2023/09/10/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities/</link>
+        <guid isPermaLink="true">/2023/09/10/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities/</guid>
         
         <category>CVE</category>
         
