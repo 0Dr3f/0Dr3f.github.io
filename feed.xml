@@ -1,13 +1,491 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>0Dr3f</title>
-    <description>Vulnerability Research &amp; Exploitation</description>
+    <title>0DR3F</title>
+    <description>Norlin – A Beautiful Dark Blog Theme for Jekyll.</description>
     <link>/</link>
     <atom:link href="/feed.xml" rel="self" type="application/rss+xml"/>
-    <pubDate>Fri, 27 Sep 2024 12:16:51 +0200</pubDate>
-    <lastBuildDate>Fri, 27 Sep 2024 12:16:51 +0200</lastBuildDate>
+    <pubDate>Fri, 27 Sep 2024 14:29:38 +0200</pubDate>
+    <lastBuildDate>Fri, 27 Sep 2024 14:29:38 +0200</lastBuildDate>
     <generator>Jekyll v4.3.2</generator>
+    
+      <item>
+        <title>Demystifying Physical Memory Primitive Exploitation on Windows</title>
+        <description>&lt;h2 id=&quot;introduction&quot;&gt;Introduction&lt;/h2&gt;
+&lt;p&gt;In this blog post I attempt to demystify physical memory exploitation on Windows and how we can abuse the right physical memory primitives to gain control and manipulate system memory. First, we’ll briefly revisit the relationship between virtual and physical memory before diving into a crash course on page translation and how address translation works on AMD64 systems. Next, we go over physical memory primitives and how these primitives can be leveraged. Even though most of the techniques covered are universal on the AMD64 architecture, we will use an (as of &lt;strong&gt;22-09-2024&lt;/strong&gt; up to date) Windows 11 23H2 machine as our target machine.&lt;/p&gt;
+&lt;h2 id=&quot;virtual--physical-memory&quot;&gt;Virtual &amp;amp; Physical Memory&lt;/h2&gt;
+&lt;p&gt;In modern systems, virtual memory allows each process to operate in its own isolated memory space. The AMD64 architecture supports this separation through a mechanism called &lt;a href=&quot;https://wiki.osdev.org/Paging&quot;&gt;Page Translation&lt;/a&gt;. This mechanism allows virtual addresses to be mapped to physical memory, letting the operating system efficiently manage memory by isolating processes while optimizing resource usage. By doing so, the OS can control which areas of physical memory are shared between different process contexts, which is important for optimization reasons.&lt;/p&gt;
+
+&lt;p&gt;For instance, the Windows memory manager can map the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;ntdll.dll&lt;/span&gt; library into physical memory just once, while mapping it within multiple process contexts, allowing each process to access it as needed without unnecessary memory consumption.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240922110929.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Let’s take a closer look at the page translation mechanism and how it works under the hood.&lt;/p&gt;
+&lt;h2 id=&quot;page-translation-crash-course&quot;&gt;Page Translation Crash Course&lt;/h2&gt;
+&lt;p&gt;The AMD64 architecture extends the legacy x86 system by expanding the ability to translate 32-bit virtual addresses into 32-bit physical addresses, now allowing for the translation of 64-bit virtual addresses into 52-bit physical addresses. This increase in addressable space enables modern systems to handle vast amounts of memory. The translation between virtual and physical addresses happens through a hierarchical set of translation tables (also referred to as page tables). Lets have a look what these hierarchical tables look like.&lt;/p&gt;
+
+&lt;h3 id=&quot;translation-page-tables&quot;&gt;Translation (Page) Tables&lt;/h3&gt;
+&lt;p&gt;The process of translating a 64-bit virtual address to a physical address happens through a hierarchy of page tables. Each level of this hierarchy represents a different stage in the translation process, and the system uses specific bits from the virtual address to navigate through these tables. By extracting certain bit ranges from the virtual address, the corresponding offset for each table can be determined.&lt;/p&gt;
+
+&lt;p&gt;The hierarchy consists of four levels of translation tables:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;Page Map Level 4      (PML4)  Bits 47 - 39
+Page Directory Page   (PDP)   Bits 38 - 30
+Page Directory        (PD)    Bits 29 - 21
+Page Table            (PT)    Bits 20 - 12
+Page Offset                   Bits 00 - 11
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240922125040.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;This means that any virtual address on AMD64 systems follows a specific structure that divides the address into several fields. Each field corresponds to an index used to navigate through the hierarchical page tables until the physical address is reached.&lt;/p&gt;
+
+&lt;p&gt;We can break down this structure within the following code:&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;typedef&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;union&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pageOffset&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;12&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;     &lt;span class=&quot;c1&quot;&gt;// Bits 0 - 11&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ptIndex&lt;/span&gt;    &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;      &lt;span class=&quot;c1&quot;&gt;// Bits 12 - 20&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pdIndex&lt;/span&gt;    &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;      &lt;span class=&quot;c1&quot;&gt;// Bits 21 - 29&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pdpIndex&lt;/span&gt;   &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;      &lt;span class=&quot;c1&quot;&gt;// Bits 30 - 38&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pml4Index&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;      &lt;span class=&quot;c1&quot;&gt;// Bits 39 - 47&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;signExtend&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;16&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;     &lt;span class=&quot;c1&quot;&gt;// Bits 48 - 63&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;VirtualAddress&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The entry within each page table level corresponds to the physical base address of the next table. This process continues until we reach the final table, where the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;Page Frame Number (PFN)&lt;/span&gt; is retrieved. The &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; represents the physical page number.&lt;/p&gt;
+
+&lt;p&gt;By multiplying the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; by the system’s &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PAGE_SIZE&lt;/span&gt; (usually &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;0x1000&lt;/span&gt; bytes or 4KB), we can determine the physical address of the page. The system then appends the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;pageOffset&lt;/span&gt; value to get the actual physical address the virtual address points to.&lt;/p&gt;
+
+&lt;p&gt;For now, we will skip the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML5&lt;/span&gt; table as this only exists when 5-Level paging is enabled.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240922112402.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The process of translating a virtual address into a physical address follows a well-defined hierarchy, as seen in the above image. Each level in this hierarchy contains 512 entries.&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;PageMapLevel4&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageMapLevel4Entry&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;512&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Each entry can contain a PDP address.&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;PageDirectoryPointer&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageDirectoryPointerEntry&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;512&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Each entry can contain a PD address.&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;PageDirectory&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageDirectoryEntry&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;512&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Each entry can contain a PT address.&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;PageTable&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageTableEntry&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;512&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Each entry can contain Page info.&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;page-table-entries-ptes&quot;&gt;Page Table Entries (PTEs)&lt;/h3&gt;
+&lt;p&gt;When the hierarchical page tables have been navigated, we end up with a Page Table Entry (&lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt;). These &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;QWORD&lt;/span&gt; sized entries contain information about the actual physical memory location that the current translation is mapped to. This includes the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; as well as memory-related flags.&lt;/p&gt;
+
+&lt;p&gt;The &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; structure is as follows:&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;typedef&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Present&lt;/span&gt;        &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 0&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RW&lt;/span&gt;             &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 1&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;US&lt;/span&gt;             &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 2&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PWT&lt;/span&gt;            &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 3&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PCD&lt;/span&gt;            &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 4&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Accessed&lt;/span&gt;       &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 5&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Dirty&lt;/span&gt;          &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 6&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PAT&lt;/span&gt;            &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 7&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Global&lt;/span&gt;         &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 8&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Available&lt;/span&gt;      &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bits 9 - 11 &lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageFrameNumber&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;40&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Bits 12 - 51&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reserved&lt;/span&gt;       &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;11&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Bits 52 - 62&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NX&lt;/span&gt;             &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;// Bit 63&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PTE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;If we take &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;8100000139EAC025&lt;/span&gt; as an example &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt;, we can visualize the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; structure bits:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240925104151.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;With the example value used above, we can simply print out the different fields within the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt;.&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;cp&quot;&gt;#include&lt;/span&gt; &lt;span class=&quot;cpf&quot;&gt;&amp;lt;iostream&amp;gt;&lt;/span&gt;&lt;span class=&quot;cp&quot;&gt;
+#include&lt;/span&gt; &lt;span class=&quot;cpf&quot;&gt;&amp;lt;Windows.h&amp;gt;&lt;/span&gt;&lt;span class=&quot;cp&quot;&gt;
+&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;typedef&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;union&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Present&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;          &lt;span class=&quot;c1&quot;&gt;// Bit 0&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RW&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;               &lt;span class=&quot;c1&quot;&gt;// Bit 1&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;US&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;               &lt;span class=&quot;c1&quot;&gt;// Bit 2&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PWT&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;              &lt;span class=&quot;c1&quot;&gt;// Bit 3&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PCD&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;              &lt;span class=&quot;c1&quot;&gt;// Bit 4&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Accessed&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;         &lt;span class=&quot;c1&quot;&gt;// Bit 5&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Dirty&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;            &lt;span class=&quot;c1&quot;&gt;// Bit 6&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PAT&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;              &lt;span class=&quot;c1&quot;&gt;// Bit 7&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Global&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;           &lt;span class=&quot;c1&quot;&gt;// Bit 8&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Available&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;        &lt;span class=&quot;c1&quot;&gt;// Bits 9 - 11&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PageFrameNumber&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;40&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Bits 12 - 51&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reserved&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;11&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;        &lt;span class=&quot;c1&quot;&gt;// Bits 52 - 62&lt;/span&gt;
+        &lt;span class=&quot;kt&quot;&gt;uint64_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NX&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;               &lt;span class=&quot;c1&quot;&gt;// Bit 63&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PTE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+&lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;PTE&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0x8100000139EAC025&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;PTE Full Address: 0x%llx&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;PTE Fields:&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Present: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Present&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Read/Write (RW): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RW&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;User/Supervisor (US): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;US&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Page Write-Through (PWT): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PWT&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Page Cache Disable (PCD): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PCD&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Accessed: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Accessed&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Dirty: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Dirty&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Page Attribute Table (PAT): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PAT&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Global: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Global&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Available: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Available&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Page Frame Number (PFN): 0x%llx&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PageFrameNumber&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Reserved: %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reserved&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;No Execute (NX): %llu&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pte&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fields&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;NX&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;PTE Full Address: 0x8100000139eac025
+
+PTE Fields:
+Present: 1
+Read/Write (RW): 0
+User/Supervisor (US): 1
+Page Write-Through (PWT): 0
+Page Cache Disable (PCD): 0
+Accessed: 1
+Dirty: 0
+Page Attribute Table (PAT): 0
+Global: 0
+Available: 0
+Page Frame Number (PFN): 0x139eac
+Reserved: 16
+No Execute (NX): 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;By gaining control over &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; contents, attackers can modify memory permissions, alter memory origins, and completely remap memory regions.&lt;/p&gt;
+
+&lt;h3 id=&quot;cr3-register&quot;&gt;CR3 Register&lt;/h3&gt;
+&lt;p&gt;In the AMD64 architecture, virtual addresses can map to different physical memory locations depending on the context in which they are used. This “context” refers to the virtual memory environment of a specific process. For example, a virtual address in &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;Context A&lt;/span&gt; (the address space of process A) may point to one physical memory region, while the same virtual address in &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;Context B&lt;/span&gt; (the address space of process B) points to an entirely different physical memory region.&lt;/p&gt;
+
+&lt;p&gt;The mechanism that enables this separation is the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;Page Map Base Register&lt;/span&gt;, stored in the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; register. The CR3 register holds the base address of the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table, which is the highest-level page-translation table in the hierarchy. Whenever the OS decides to switch between process contexts, the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; register is updated to point to the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table of that process.&lt;/p&gt;
+
+&lt;h3 id=&quot;self-reference-entries&quot;&gt;Self-Reference Entries&lt;/h3&gt;
+&lt;p&gt;In the AMD64 architecture, the self-reference entry is a mechanism that allows a page table to map to itself. This means that the page table can be accessed from within the address space it manages. Basically, a process can use a self-reference entry to view and modify its own page table hierarchy directly. We can see how the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; self-reference entry within the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table actually points to the base of the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table, instead of a &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDP&lt;/span&gt; table.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240922133113.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;With this mechanism, the OS can bypass the final table lookup, enabling direct access to the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; from virtual memory. Previously, both the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; and &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDE&lt;/span&gt; self-reference entries were mapped at static virtual addresses. However, for security reasons, these addresses are now randomized to prevent attacks targeting the static mappings. Despite this randomization, the OS still relies on these self-reference entries, making them relatively easy to locate using a read primitive.&lt;/p&gt;
+
+&lt;p&gt;We can see how the OS retrieves these addresses using the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;nt!MiGetPTEAddress&lt;/span&gt; and &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;nt!MiGetPDEAddress&lt;/span&gt; functions.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240925111431.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240925111525.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;In order to retrieve these values using a read primitive, we simply read the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;QWORDs&lt;/span&gt; located at &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;nt!MiGetPTEAddress + 0x13&lt;/span&gt; and &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;nt!MiGetPDEAddress + 0x0c&lt;/span&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;1: kd&amp;gt; dq nt!MiGetPdeAddress + 0Xc L1
+fffff806`356c794c  ffff8944`80000000
+
+1: kd&amp;gt; dq nt!MiGetPteAddress + 0X13 L1
+fffff806`3568f66f  ffff8900`00000000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Using these self-reference entries, we can directly access &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTEs&lt;/span&gt; and &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDEs&lt;/span&gt; from virtual memory. If we for example want to access the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; for address &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;00007ff776890000&lt;/span&gt;, we right-shift the address by 9 (in order to account for the skipped table lookup), and add the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; self-reference base.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;1: kd&amp;gt; dq nt!MiGetPteAddress + 0X13 L1
+fffff806`3568f66f  ffff8900`00000000
+
+1: kd&amp;gt; ? ffff890000000000 + (00007ff776890000 &amp;gt;&amp;gt; 0n9)
+Evaluate expression: -130567077411712 = ffff893f`fbbb4480
+
+1: kd&amp;gt; dqs ffff893ffbbb4480 L1
+ffff893f`fbbb4480  81000001`39eac025
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We can see this matches the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;!pte&lt;/span&gt; result in WinDBG.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;1: kd&amp;gt; !pte 00007ff776890000
+                                           VA 00007ff776890000
+PXE at FFFF8944A25127F8    PPE at FFFF8944A24FFEE8    PDE at FFFF89449FFDDDA0    PTE at FFFF893FFBBB4480
+contains 0A000001393C5867  contains 0A000001393C6867  contains 0A000001393C7867  contains 8100000139EAC025
+pfn 1393c5    ---DA--UWEV  pfn 1393c6    ---DA--UWEV  pfn 1393c7    ---DA--UWEV  pfn 139eac    ----A--UR-V
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&quot;example-time&quot;&gt;Example Time&lt;/h3&gt;
+&lt;p&gt;Now that we’ve covered the theory, let’s put it into practice by manually translating a virtual address into its corresponding physical memory location. We will be using the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;MsMpEng.exe&lt;/span&gt; base for our example.&lt;/p&gt;
+
+&lt;h4 id=&quot;step-1-locate-the-process-and-switch-context&quot;&gt;Step 1: Locate the process and switch context&lt;/h4&gt;
+&lt;p&gt;First, we need to find the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;MsMpEng.exe&lt;/span&gt; process to switch WinDBG to the correct process context. This will allow us to retrieve its virtual base address and begin translating the address.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;1: kd&amp;gt; !process 0 0 MsMpEng.exe
+Unable to reset the USB hub where the USB node failed enumeration
+PROCESS ffff8e82692b9080
+    SessionId: 0  Cid: 1020    Peb: 29c5139000  ParentCid: 0380
+    DirBase: 12defc000  ObjectTable: ffffc70f8dcf2800  HandleCount: 1055.
+    Image: MsMpEng.exe
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Looking at the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;!process&lt;/span&gt; output, we can see the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;DirBase&lt;/span&gt; value. This value corresponds to the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;KPROCESS.DirectoryTableBase&lt;/span&gt; value, which is the value that the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; register is set to upon a process context change.&lt;/p&gt;
+
+&lt;p&gt;We then switch to this process context:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;1: kd&amp;gt; .process /i ffff8e82692b9080
+You need to continue execution (press &apos;g&apos; &amp;lt;enter&amp;gt;) for the context
+to be switched. When the debugger breaks in again, you will be in
+the new process context.
+
+1: kd&amp;gt; g
+Break instruction exception - code 80000003 (first chance)
+nt!DbgBreakPointWithStatus:
+fffff806`35824620 cc              int     3
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;After switching, we reload the user symbols to retrieve the virtual base address of &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;MsMpEng.exe&lt;/span&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; .reload /user
+Loading User Symbols
+....................................................
+....................................................
+
+2: kd&amp;gt; ? MsMpEng
+Evaluate expression: 140700111732736 = 00007ff7`4c2e0000        
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&quot;step-2-locate-the-pml4e&quot;&gt;Step 2: Locate the PML4E&lt;/h4&gt;
+&lt;p&gt;As mentioned, we can retrieve the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table base from the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; register or through the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;KPROCESS.DirectoryTableBase&lt;/span&gt; field.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; dt ffff8e82692b9080 nt!_KPROCESS DirectoryTableBase
+   +0x028 DirectoryTableBase : 0x00000001`2defc000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;By following the page translation logic, we can retrieve the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; table index from the virtual address we are translating.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? MsMpEng &amp;gt;&amp;gt; 0n39 &amp;amp; 0x1FF
+Evaluate expression: 255 = 00000000`000000ff
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next we can take the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; base and find the entry that corresponds to this index.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; !dq 0x000000012defc000 + (0xff * 8) L1
+#12defc7f8 0a000001`2e108867
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;0a0000012e108867&lt;/span&gt; is the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4E&lt;/span&gt; of the address we are looking for, we can retrieve the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDP&lt;/span&gt; base by extracting the right bits.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? 0a0000012e108867 &amp;amp; 0000FFFFFFFFF000
+Evaluate expression: 5067800576 = 00000001`2e108000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&quot;step-3-repeat-for-pdpe-pde-and-pte&quot;&gt;Step 3: Repeat for PDPE, PDE, and PTE&lt;/h4&gt;
+&lt;p&gt;We now continue this process for the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDP&lt;/span&gt;, &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PD&lt;/span&gt;, and the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PT&lt;/span&gt; until we get the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; value.&lt;/p&gt;
+
+&lt;h5 id=&quot;retrieving-the-pdpe--pd-base&quot;&gt;Retrieving the PDPE &amp;amp; PD Base&lt;/h5&gt;
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? MsMpEng &amp;gt;&amp;gt; 0n30 &amp;amp; 0x1FF
+Evaluate expression: 477 = 00000000`000001dd
+
+2: kd&amp;gt; !dq 000000012e108000 + (0x1dd * 8) L1
+#12e108ee8 0a000001`2e109867
+
+2: kd&amp;gt; ? 0a0000012e109867&amp;amp; 0000FFFFFFFFF000
+Evaluate expression: 5067804672 = 00000001`2e109000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h5 id=&quot;retrieving-the-pde--pt-base&quot;&gt;Retrieving the PDE &amp;amp; PT Base&lt;/h5&gt;
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? MsMpEng &amp;gt;&amp;gt; 0n21 &amp;amp; 0x1FF
+Evaluate expression: 97 = 00000000`00000061
+
+2: kd&amp;gt; !dq 000000012e109000+ (61 * 8) L1
+#12e109308 0a000001`29e0a867
+
+2: kd&amp;gt; ? 0a00000129e0a867 &amp;amp; 0000FFFFFFFFF000
+Evaluate expression: 4997554176 = 00000001`29e0a000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h5 id=&quot;retrieving-the-pte&quot;&gt;Retrieving the PTE&lt;/h5&gt;
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? MsMpEng &amp;gt;&amp;gt; 0n12 &amp;amp; 0x1FF
+Evaluate expression: 224 = 00000000`000000e0
+
+2: kd&amp;gt; !dq 0000000129e0a000 + (e0 * 8) L1
+#129e0a700 81000001`20839025
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We now retrieved the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; that corresponds to the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;MsMpEng&lt;/span&gt; module base: &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;8100000120839025&lt;/span&gt;. In order to verify that we’ve found the correct physical address we can read the MZ header located at the start of the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;MsMpEng&lt;/span&gt; module.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; ? 8100000120839025 &amp;amp; 0000FFFFFFFFF000
+Evaluate expression: 4840460288 = 00000001`20839000
+
+2: kd&amp;gt; !db 00000001`20839000
+#120839000 4d 5a 90 00 03 00 00 00-04 00 00 00 ff ff 00 00 MZ..............
+#120839010 b8 00 00 00 00 00 00 00-40 00 00 00 00 00 00 00 ........@.......
+#120839020 00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00 ................
+#120839030 00 00 00 00 00 00 00 00-00 00 00 00 f8 00 00 00 ................
+#120839040 0e 1f ba 0e 00 b4 09 cd-21 b8 01 4c cd 21 54 68 ........!..L.!Th
+#120839050 69 73 20 70 72 6f 67 72-61 6d 20 63 61 6e 6e 6f is program canno
+#120839060 74 20 62 65 20 72 75 6e-20 69 6e 20 44 4f 53 20 t be run in DOS 
+#120839070 6d 6f 64 65 2e 0d 0d 0a-24 00 00 00 00 00 00 00 mode....$.......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We can also verify the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; with the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;!pte&lt;/span&gt; command in WinDBG.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; !pte MsMpEng
+                                           VA 00007ff74c2e0000
+PXE at FFFF8944A25127F8    PPE at FFFF8944A24FFEE8    PDE at FFFF89449FFDD308    PTE at FFFF893FFBA61700
+contains 0A0000012E108867  contains 0A0000012E109867  contains 0A00000129E0A867  contains 8100000120839025
+pfn 12e108    ---DA--UWEV  pfn 12e109    ---DA--UWEV  pfn 129e0a    ---DA--UWEV  pfn 120839    ----A--UR-V
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&quot;physical-primitive-exploitation&quot;&gt;Physical Primitive Exploitation&lt;/h2&gt;
+&lt;p&gt;Now that we’ve covered the basics of page translation, we can dive into how we can leverage these mechanisms to achieve our goals on the target system. First, we’ll explore how to reliably convert physical Read/Write (RW) primitives into virtual RW primitives, and vice versa. Next, we’ll dive into techniques that allow us to create entirely new RW primitives. Finally, we’ll see how these RW primitives, combined with page translation, can be used to access and manipulate other process memory or inject code. all without needing process handles.&lt;/p&gt;
+&lt;h3 id=&quot;physical-to-virtual-rw-walking-the-tables&quot;&gt;Physical to Virtual RW: Walking the tables&lt;/h3&gt;
+&lt;p&gt;To transform our physical RW primitive into a virtual RW primitive, we need to translate the target virtual address into its corresponding physical address. As we covered in the page translation chapter, this process requires knowing the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; value (or &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PML4&lt;/span&gt; base) of the target process. Without it, we cannot walk the page tables to find the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; for the virtual address.&lt;/p&gt;
+
+&lt;p&gt;Luckily, the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;system&lt;/span&gt; &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; value is always located at offset &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;0xa0&lt;/span&gt; within one of the first pages. So scanning for this value is relatively trivial.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; !process 0 0 system
+PROCESS ffff8e8263eb9040
+    SessionId: none  Cid: 0004    Peb: 00000000  ParentCid: 0000
+    DirBase: 001ae000  ObjectTable: ffffc70f8861d340  HandleCount: 3989.
+    Image: System
+
+
+2: kd&amp;gt; !search 001ae000 4 0 100
+Using a machine size of 1ffe56 pages to configure the kd cache
+Searching PFNs in range 0000000000000002 - 0000000000000100 for [00000000001ADFFC - 00000000001AE004]
+
+Pfn              Offset   Hit              Va               Pte              
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+0000000000000013 000000A0 00000000001AE000 FFFFF7FD4000D0A0 FFFF897BFEA00068 
+Search done.
+
+2: kd&amp;gt; !dq 130a0 L1
+#   130a0 00000000`001ae000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;system&lt;/span&gt; &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; value, we can now effectively walk the page tables and read/write to any virtual address that is valid in the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;system&lt;/span&gt; process context. This includes access to kernel memory, allowing us to retrieve the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; value of any process, including our current one, by checking the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;KPROCESS.DirectoryTableBase&lt;/span&gt; value:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;2: kd&amp;gt; !process -1 0
+PROCESS ffff8e82692b9080
+    SessionId: 0  Cid: 1020    Peb: 29c5139000  ParentCid: 0380
+    DirBase: 12defc000  ObjectTable: ffffc70f8dcf2800  HandleCount: 1055.
+    Image: MsMpEng.exe
+
+2: kd&amp;gt; dt ffff8e82692b9080 nt!_KPROCESS DirectoryTableBase
+   +0x028 DirectoryTableBase : 0x00000001`2defc000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now, we have the ability to translate any virtual address in the current process context into its corresponding physical page, allowing us to read and write to virtual memory using our physical RW primitive.&lt;/p&gt;
+&lt;h3 id=&quot;virtual-to-physical-rw-abusing-pfns&quot;&gt;Virtual to Physical RW: Abusing PFNs&lt;/h3&gt;
+&lt;p&gt;Now that we’re able to transform a physical RW into a virtual RW, lets flip it around. We can use a virtual RW primitive to create a physical RW primitive by leveraging the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFNs&lt;/span&gt; within &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTEs&lt;/span&gt;. Remember, we can access &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTEs&lt;/span&gt; through the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; self-reference entry and by changing the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; of a buffer we control, we can read/write to any physical page we want.&lt;/p&gt;
+&lt;h3 id=&quot;creating-new-rw-primitives&quot;&gt;Creating New RW Primitives&lt;/h3&gt;
+&lt;p&gt;Sometimes, the primitives you’ve created are somewhat limited in terms of execution time or constraints on access. However, by leveraging the page translation mechanism, you can use a restrictive RW primitive to create a more flexible and stable one.&lt;/p&gt;
+
+&lt;p&gt;We begin by writing the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PT&lt;/span&gt; base address (retrieved from the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PDE&lt;/span&gt;) of buffer 1 into the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; of buffer 2. This operation redirects buffer 2 to point to buffer 1’s &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PT&lt;/span&gt;, allowing us to modify buffer 1’s &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt; indirectly. By writing to buffer 2, we can now change the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; and memory privileges of buffer 1, effectively allowing us to write to any physical address simply by writing to our own allocated buffers.&lt;/p&gt;
+
+&lt;p&gt;Consider the following memory layout containing 2 of our allocated buffers.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240927082802.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;By writing the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PT&lt;/span&gt; base of buffer 1 into the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; of buffer 2, we can access the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PT&lt;/span&gt; from buffer 2, including the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTE&lt;/span&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240927083038.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;We can now change the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; of buffer 1 and use the buffer in order to manipulate the target memory.&lt;/p&gt;
+
+&lt;h3 id=&quot;dealing-with-the-tlb&quot;&gt;Dealing with the TLB&lt;/h3&gt;
+&lt;p&gt;When manually altering page translations, we will encounter the CPU memory caching mechanism called the &lt;a href=&quot;https://en.wikipedia.org/wiki/Translation_lookaside_buffer&quot;&gt;Translation Lookaside Buffer (TLB)&lt;/a&gt;. This mechanism basically acts as address-translation cache. Caching the last few address translations for optimization. The issue is that if we manually change the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFN&lt;/span&gt; of a buffer, as with our custom RW primitive, the old translation may still be cached in the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;TLB&lt;/span&gt;. This causes any translation to translate to the old physical address, instead of our altered one.&lt;/p&gt;
+
+&lt;p&gt;Although a more reliable method in terms of execution time should be possible (flushing out the entries the TLB can hold). A simply and effective method to bypass this issue is to force a context switch.&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;TLBFlush&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+	&lt;span class=&quot;k&quot;&gt;while&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;SwitchToThread&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+		&lt;span class=&quot;k&quot;&gt;continue&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+	&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;case-study-1---stealthy-code-injection-via-physical-rw&quot;&gt;Case Study 1 - Stealthy Code Injection via Physical RW&lt;/h3&gt;
+&lt;p&gt;In this case study, we’ll look at how our physical primitives can be leveraged in order to hook shared libraries, a well-known technique for hijacking the execution flow of a target process. By manipulating physical memory, we can stealthily inject code and alter the behavior of critical libraries without relying on typical user-mode or kernel-mode injection techniques.&lt;/p&gt;
+
+&lt;p&gt;One technique is to hook a function within &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;ntdll.dll&lt;/span&gt; that is widely used by your target process. By applying a Process ID (&lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PID&lt;/span&gt;) check within our hook logic, we can make sure that the actual hook logic is only executed by our target process.&lt;/p&gt;
+
+&lt;p&gt;The location we store our hook logic can vary, but one method could be to abuse code-alignment padding found between &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;ntdll.dll&lt;/span&gt; functions to store our code. By dynamically scanning for these unused code regions, we can identify and chain together free space to store our hook code.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240922133016.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;This technique enables us to inject code, even into highly monitored processes, bypassing traditional detection methods.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/lol_proof.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;With the introduction of &lt;a href=&quot;https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-vbs&quot;&gt;Virtualization-based Security (VBS)&lt;/a&gt;, this method no longer works. The technique relies on manipulating physical memory that is now enforced as read-only. Due to the extra translation layer (&lt;a href=&quot;https://en.wikipedia.org/wiki/Second_Level_Address_Translation#:~:text=Second%20Level%20Address%20Translation%20(SLAT,software%2Dmanaged%20shadow%20page%20tables.)&quot;&gt;Second Level Address Translation (SLAT)&lt;/a&gt;, this read-only state is now enforced at the hypervisor level. In the next case study we will look at a technique that is still &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;VBS&lt;/span&gt; compliant.&lt;/p&gt;
+&lt;h3 id=&quot;case-study-2---manual-memory-mapping&quot;&gt;Case Study 2 - Manual Memory Mapping&lt;/h3&gt;
+&lt;p&gt;In this case study, we will look at a technique that enables us to map the memory of a target process directly into the memory space of the current process. Since we already have full control over the paging structures, nothing prevents us from creating valid &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PTEs&lt;/span&gt; in the current process context that point to the target process’s memory.&lt;/p&gt;
+
+&lt;p&gt;Consider the following memory layout, where two different processes each have an allocated buffer within their memory space.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240927094326.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;By obtaining the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;CR3&lt;/span&gt; value of the target process (which can always be found by scanning physical memory), we can use our physical RW primitives to walk the target’s page tables and read the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFNs&lt;/span&gt; corresponding to the target memory. We then simply write these &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;PFNs&lt;/span&gt; into our own page tables, effectively mapping the target memory into the current process context.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/Pasted%20image%2020240927094840.png&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;This allows us to read/write to the target memory from our own process context.&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    &lt;span class=&quot;c1&quot;&gt;// manuallyMappedBuf has been manually mapped to the target physical memory&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;targetAddress&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;manuallyMappedBuf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;// Read from target memory&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ULONGLONG&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;readVal&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;targetAddress&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;printf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;[*] Read value: 0x%llX&lt;/span&gt;&lt;span class=&quot;se&quot;&gt;\n&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;readVal&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;// Write to target memory&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;//*targetAddress = 0xDEADBEEFDEADBEEF;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We can apply this technique on any highly monitored/protected process such as &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;VALORANT&lt;/span&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-raw&quot;&gt;C:\Users\user\Documents\Files\Dev\Cpp\PhysMapper\x64\Release&amp;gt;PhysMapper.exe
+[DriverLoad]: tempPath: C:\Users\user\AppData\Local\Temp\
+[DriverLoad]: drvName: Xkj7sFnSMIV3vdTk
+[DriverLoad]: Info: The service started successfully.
+[PhysMapper]: Setting up scanners...
+[DriverLoad]: Info: Service is stopping...
+[DriverLoad]: Info: Service deleted successfully: Xkj7sFnSMIV3vdTk
+[DriverLoad]: Info: Driver file deleted successfully: C:\Users\user\AppData\Local\Temp\Xkj7sFnSMIV3vdTk
+[PhysMapper]: Trying to find: VALORANT-Win64-Shipping.exe
+[PhysMapper]: Scanning for PML4Base...
+[PhysMapper]: Found PML4Base: 0000000FA56B8000
+[PhysMapper]: Mapping memory in current process context
+[*] Read value: 0x300905A4D
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With this technique, it’s important to respect the original memory privileges (RW/RO) of the allocation. By doing so, we remain compliant with &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;VBS&lt;/span&gt;. Since the hypervisor only sees valid physical memory access requests, we do not run into any issues related to &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;SLAT&lt;/span&gt;.&lt;/p&gt;
+&lt;h2 id=&quot;wrapping-up&quot;&gt;Wrapping Up&lt;/h2&gt;
+&lt;p&gt;In this post, we’ve looked at the &lt;span style=&quot;color: #ffffff; background-color: #500000; padding: 2px; border-radius: 3px&quot;&gt;AMD64&lt;/span&gt; page translation mechanism and demonstrated how the right physical memory primitives can be leveraged to access and manipulate the memory of other processes. While this post covers the core concepts, it by no means addresses all the intricacies and nuances involved in low-level memory manipulation and process exploitation on modern systems.&lt;/p&gt;
+
+</description>
+        <pubDate>Fri, 27 Sep 2024 00:00:00 +0200</pubDate>
+        <link>/Demystifying_Physical_Memory_Primitive_Exploitation_on_Windows</link>
+        <guid isPermaLink="true">/Demystifying_Physical_Memory_Primitive_Exploitation_on_Windows</guid>
+        
+        <category>KERNEL</category>
+        
+        
+      </item>
     
       <item>
         <title>How Flawed Certificate Handling Leads to Critical Vulnerabilities</title>
@@ -163,8 +641,8 @@ php -S 0.0.0.0:80
 
 </description>
         <pubDate>Sun, 10 Sep 2023 00:00:00 +0200</pubDate>
-        <link>/2023/09/10/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities/</link>
-        <guid isPermaLink="true">/2023/09/10/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities/</guid>
+        <link>/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities</link>
+        <guid isPermaLink="true">/How_Flawed_Certificate_Handling_Leads_To_Critical_Vulnerabilities</guid>
         
         <category>CVE</category>
         
@@ -907,8 +1385,8 @@ Full exploit code can be found here: &lt;a href=&quot;https://github.com/0Dr3f/E
 
 </description>
         <pubDate>Fri, 14 Jul 2023 15:40:00 +0200</pubDate>
-        <link>/2023/07/14/HEVD_Win10_22H2_ArbitraryOverwrite/</link>
-        <guid isPermaLink="true">/2023/07/14/HEVD_Win10_22H2_ArbitraryOverwrite/</guid>
+        <link>/HEVD_Win10_22H2_ArbitraryOverwrite</link>
+        <guid isPermaLink="true">/HEVD_Win10_22H2_ArbitraryOverwrite</guid>
         
         <category>KERNEL</category>
         
